@@ -4,6 +4,7 @@ import { WebRTCService } from './webrtcService';
 import { MediaService } from './mediaService';
 import { supabase } from './supabaseClient';
 import toast from 'react-hot-toast';
+import { RealtimeChannel } from '@supabase/supabase-js';
 
 interface UseVideoCallProps {
   mentorId?: string;
@@ -25,7 +26,7 @@ export const useVideoCall = ({ mentorId, durationMinutes }: UseVideoCallProps = 
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const webrtcServiceRef = useRef<WebRTCService | null>(null);
-  const subscriptionRef = useRef<any>(null);
+  const subscriptionRef = useRef<RealtimeChannel | null>(null);
 
   // Initialize User ID
   useEffect(() => {
@@ -383,8 +384,8 @@ export const useVideoCall = ({ mentorId, durationMinutes }: UseVideoCallProps = 
           // Renegotiate (Create new offer)
           const offer = await webrtcServiceRef.current.createOffer();
           await SupabaseService.storeSignal({
-            room_id: roomId,
-            sender_id: userId,
+            room_id: roomId!,
+            sender_id: userId!,
             signal_type: 'offer',
             signal_data: offer,
           });
@@ -419,7 +420,7 @@ export const useVideoCall = ({ mentorId, durationMinutes }: UseVideoCallProps = 
         toast.error('Failed to share screen');
       }
     }
-  }, [localStream, localVideoRef]);
+  }, [localStream, localVideoRef, roomId, userId]);
 
   const stopScreenShare = useCallback(async () => {
     try {
