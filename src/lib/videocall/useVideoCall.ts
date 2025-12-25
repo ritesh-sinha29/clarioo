@@ -27,6 +27,7 @@ export const useVideoCall = ({ mentorId, durationMinutes }: UseVideoCallProps = 
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const webrtcServiceRef = useRef<WebRTCService | null>(null);
   const subscriptionRef = useRef<RealtimeChannel | null>(null);
+  const screenStreamRef = useRef<MediaStream | null>(null);
 
   // Initialize User ID
   useEffect(() => {
@@ -373,6 +374,9 @@ export const useVideoCall = ({ mentorId, durationMinutes }: UseVideoCallProps = 
         const videoSender = senders.find((s) => s.track?.kind === 'video');
         console.log("📺 Video sender found:", !!videoSender);
 
+        // Store screen stream reference for cleanup
+        screenStreamRef.current = screenStream;
+
         if (videoSender) {
           // Replace existing video track with screen
           await videoSender.replaceTrack(screenTrack);
@@ -397,14 +401,28 @@ export const useVideoCall = ({ mentorId, durationMinutes }: UseVideoCallProps = 
 
         // When user stops sharing via browser UI
         screenTrack.onended = async () => {
-          console.log("📺 Screen share ended by user");
-          if (localStream && localVideoRef.current) {
+          console.log("📺 Screen share ended by browser");
+
+          // Inline cleanup to avoid closure issues
+          if (screenStreamRef.current) {
+            screenStreamRef.current.getTracks().forEach(t => t.stop());
+            screenStreamRef.current = null;
+          }
+
+          if (localStream && webrtcServiceRef.current && localVideoRef.current) {
             const videoTrack = localStream.getVideoTracks()[0];
+            const pc = webrtcServiceRef.current.getPeerConnection();
+            const senders = pc.getSenders();
+            const videoSender = senders.find((s) => s.track?.kind === 'video');
+
             if (videoSender && videoTrack) {
+              videoTrack.enabled = isCameraOn;
               await videoSender.replaceTrack(videoTrack);
             }
+
             localVideoRef.current.srcObject = localStream;
           }
+
           setIsScreenSharing(false);
           toast.success('Screen sharing stopped');
         };
@@ -420,26 +438,47 @@ export const useVideoCall = ({ mentorId, durationMinutes }: UseVideoCallProps = 
         toast.error('Failed to share screen');
       }
     }
-  }, [localStream, localVideoRef, roomId, userId]);
+  }, [localStream, localVideoRef, roomId, userId, isCameraOn]); // stopScreenShare removed to avoid circular dependency
 
   const stopScreenShare = useCallback(async () => {
     try {
+      // Stop all screen share tracks
+      if (screenStreamRef.current) {
+        screenStreamRef.current.getTracks().forEach(track => {
+          track.stop();
+          console.log("📺 Stopped screen track:", track.kind);
+        });
+        screenStreamRef.current = null;
+      }
+
       if (localStream && webrtcServiceRef.current) {
         const videoTrack = localStream.getVideoTracks()[0];
         const pc = webrtcServiceRef.current.getPeerConnection();
-        const senders = await pc.getSenders();
+        const senders = pc.getSenders();
         const videoSender = senders.find((s) => s.track?.kind === 'video');
 
         if (videoSender && videoTrack) {
+          // Ensure camera track is enabled
+          videoTrack.enabled = isCameraOn;
+
+          // Replace screen track with camera track
           await videoSender.replaceTrack(videoTrack);
-          setIsScreenSharing(false);
-          toast.success('Screen sharing stopped');
+          console.log("📺 Replaced screen with camera track");
         }
+
+        // Restore local video display
+        if (localVideoRef.current && localStream) {
+          localVideoRef.current.srcObject = localStream;
+        }
+
+        setIsScreenSharing(false);
+        toast.success('Screen sharing stopped');
       }
     } catch (err) {
+      console.error("❌ Stop screen share error:", err);
       toast.error('Failed to stop screen sharing');
     }
-  }, [localStream]);
+  }, [localStream, localVideoRef, isCameraOn]);
 
   const sendChatMessage = useCallback(async (message: string) => {
     if (!roomId || !userId) return;

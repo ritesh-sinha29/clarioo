@@ -255,11 +255,6 @@ export default function RoomPage() {
     router.push("/");
   };
 
-  const toggleScreenShare = () => {
-    if (isScreenSharing) stopScreenShare();
-    else shareScreen();
-  };
-
   const copyRoomLink = () => {
     navigator.clipboard.writeText(window.location.href);
     setCopied(true);
@@ -419,16 +414,25 @@ export default function RoomPage() {
             <span className="hidden sm:inline font-inter">End Session</span>
           </button>
 
-          {/* Screen Share */}
-          <button
-            onClick={toggleScreenShare}
-            className={`w-14 h-14 rounded-full flex items-center justify-center transition-all shadow-lg hover:scale-105 ${isScreenSharing
-              ? "bg-[#00D56A] text-white"
-              : "bg-[#3D4150] text-white hover:bg-[#4A4F5E]"
-              }`}
-          >
-            <FaDesktop size={20} />
-          </button>
+          {/* Screen Share / Stop Sharing */}
+          {!isScreenSharing ? (
+            <button
+              onClick={() => shareScreen()}
+              className="w-14 h-14 rounded-full flex items-center justify-center transition-all shadow-lg hover:scale-105 bg-[#3D4150] text-white hover:bg-[#4A4F5E]"
+              title="Share Screen"
+            >
+              <FaDesktop size={20} />
+            </button>
+          ) : (
+            <button
+              onClick={() => stopScreenShare()}
+              className="px-6 h-14 rounded-full bg-red-500 hover:bg-red-600 text-white font-semibold flex items-center justify-center gap-2 transition-all shadow-lg hover:scale-105"
+              title="Stop Sharing"
+            >
+              <FaDesktop size={18} />
+              <span className="font-inter">Stop Sharing</span>
+            </button>
+          )}
 
           {/* Chat Toggle (Desktop) */}
           <button
