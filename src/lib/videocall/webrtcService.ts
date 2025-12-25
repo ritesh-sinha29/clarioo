@@ -98,8 +98,9 @@ export class WebRTCService {
    */
   onConnectionStateChange(callback: (state: RTCPeerConnectionState) => void): void {
     if (!this.peerConnection) throw new Error('PeerConnection not initialized');
-    this.peerConnection.onconnectionstatechange = () => {
-      callback(this.peerConnection!.connectionState);
+    const pc = this.peerConnection;
+    pc.onconnectionstatechange = () => {
+      callback(pc.connectionState);
     };
   }
 

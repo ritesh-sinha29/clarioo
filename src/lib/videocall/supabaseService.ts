@@ -26,7 +26,7 @@ export interface Signal {
   room_id: string;
   sender_id: string;
   receiver_id?: string;
-  signal_type: 'offer' | 'answer' | 'ice-candidate';
+  signal_type: 'offer' | 'answer' | 'ice';
   signal_data: any;
   created_at: string;
 }
@@ -101,14 +101,12 @@ export class SupabaseService {
   /**
    * Get signals for a room
    */
-  static async getSignals(roomId: string, fromUserId?: string): Promise<Signal[]> {
-    let query = supabase.from('signals').select('*').eq('room_id', roomId);
-
-    if (fromUserId) {
-      query = query.or(`sender_id.eq.${fromUserId},receiver_id.eq.${fromUserId}`);
-    }
-
-    const { data, error } = await query.order('created_at', { ascending: true });
+  static async getSignals(roomId: string): Promise<Signal[]> {
+    const { data, error } = await supabase
+      .from('signals')
+      .select('*')
+      .eq('room_id', roomId)
+      .order('created_at', { ascending: true });
 
     if (error) throw new Error(`Failed to fetch signals: ${error.message}`);
     return data as Signal[];

@@ -1,643 +1,480 @@
 "use client";
-
-import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
-import { useUserData } from "@/context/UserDataProvider";
-import EmojiPicker from "emoji-picker-react";
+import { useEffect, useState, useRef } from "react";
+import { useParams, useRouter } from "next/navigation";
+import { useVideoCall } from "@/lib/videocall/useVideoCall";
+import { supabase } from "@/lib/videocall/supabaseClient";
 import toast from "react-hot-toast";
+import EmojiPicker, { Theme } from "emoji-picker-react";
 import {
-  FaMicrophone,
-  FaMicrophoneSlash,
-  FaVideo,
-  FaVideoSlash,
-  FaDesktop,
-  FaPhoneSlash,
-  FaShare,
-  FaPaperclip,
+  FaMicrophone, FaMicrophoneSlash, FaVideo, FaVideoSlash,
+  FaDesktop, FaPhoneSlash, FaComments, FaTimes, FaUserCircle,
+  FaPaperPlane, FaSmile, FaCopy, FaCheck
 } from "react-icons/fa";
-import { SupabaseService, ChatMessage, TypingStatus } from "@/lib/videocall/supabaseService";
-import { WebRTCService } from "@/lib/videocall/webrtcService";
-import { MediaService } from "@/lib/videocall/mediaService";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 
-interface RoomParams {
-  roomid: string;
-}
-
-export default function RoomPage({ params }: { params: RoomParams }) {
+export default function RoomPage() {
+  const { roomid } = useParams();
   const router = useRouter();
-  const { mentor } = useUserData();
-  const roomId = params.roomid;
 
-  // User info
-  const userId = mentor?.id || `guest-${Math.floor(Math.random() * 999999)}`;
-  const userName = mentor?.full_name || "Guest";
+  const {
+    joinSession,
+    endSession,
+    leaveSession,
+    localVideoRef,
+    remoteVideoRef,
+    toggleCamera,
+    toggleMicrophone,
+    shareScreen,
+    stopScreenShare,
+    isCameraOn,
+    isMicOn,
+    isScreenSharing,
+    userId,
+    localStream,
+    remoteStream,
+    isLoading
+  } = useVideoCall();
 
-  // WebRTC & Media refs
-  const localVideoRef = useRef<HTMLVideoElement | null>(null);
-  const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
-  const webrtcServiceRef = useRef<WebRTCService | null>(null);
-  const localStreamRef = useRef<MediaStream | null>(null);
-  const screenStreamRef = useRef<MediaStream | null>(null);
-
-  // Subscriptions
-  const channelRef = useRef<any>(null);
-  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-  // State
-  const [joined, setJoined] = useState(false);
-  const [connecting, setConnecting] = useState(true);
-  const [isAudioEnabled, setIsAudioEnabled] = useState(true);
-  const [isVideoEnabled, setIsVideoEnabled] = useState(true);
-  const [isScreenSharing, setIsScreenSharing] = useState(false);
-  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-  const [showChatPanel, setShowChatPanel] = useState(true);
-  
-  // Chat state
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  // UI State
+  const [showChat, setShowChat] = useState(true);
+  const [chatMessages, setChatMessages] = useState<any[]>([]);
   const [newMessage, setNewMessage] = useState("");
-  const [remoteUser, setRemoteUser] = useState<TypingStatus | null>(null);
-  const [sessionEnded, setSessionEnded] = useState(false);
-  const [sessionTimer, setSessionTimer] = useState(0);
-  const [debugInfo, setDebugInfo] = useState({
-    roomId: "",
-    userId: "",
-    userName: "",
-    connected: false,
-    localStreamActive: false,
-    remoteStreamActive: false,
-  });
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [remoteTyping, setRemoteTyping] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [callDuration, setCallDuration] = useState(0);
+  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const chatContainerRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll to latest message
+  // Call duration timer
   useEffect(() => {
-    const chatContainer = document.getElementById("chat-messages");
-    if (chatContainer) {
-      chatContainer.scrollTop = chatContainer.scrollHeight;
+    const timer = setInterval(() => {
+      setCallDuration(prev => prev + 1);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const formatDuration = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  useEffect(() => {
+    if (roomid) {
+      const id = Array.isArray(roomid) ? roomid[0] : roomid;
+      checkRoomAndJoin(id);
+      loadChatHistory(id);
+      subscribeToChat(id);
+      subscribeToTyping(id);
+    }
+  }, [roomid]);
+
+  // Auto-scroll chat
+  useEffect(() => {
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
     }
   }, [chatMessages]);
 
-  // ===================================================================
-  // 🚀 Initialize Room & WebRTC Connection
-  // ===================================================================
-  useEffect(() => {
-    if (!roomId || sessionEnded) return;
+  const checkRoomAndJoin = async (id: string) => {
+    const { data: room, error } = await supabase
+      .from("rooms")
+      .select("*")
+      .eq("id", id)
+      .single();
 
-    const initializeRoom = async () => {
-      try {
-        // REQUEST PERMISSIONS FIRST (before anything else)
-        console.log("🔐 REQUESTING PERMISSIONS IMMEDIATELY...");
-        
-        let stream: MediaStream;
-        try {
-          // Request permissions directly and immediately
-          stream = await MediaService.getUserMedia({
-            video: { width: { ideal: 1280 }, height: { ideal: 720 } },
-            audio: { echoCancellation: true, noiseSuppression: true },
-          });
-          console.log("✅ PERMISSIONS GRANTED IMMEDIATELY!");
-        } catch (mediaError: any) {
-          console.error("❌ Permission denied or device error:", mediaError.name);
-          
-          let errorMsg = "Failed to access camera/microphone";
-          if (mediaError.name === "NotAllowedError") {
-            errorMsg = "❌ PERMISSION DENIED\n\nGrant camera/microphone access:\n1. Click 🎥 camera icon in address bar\n2. Select 'Allow'\n3. Refresh page";
-          } else if (mediaError.name === "NotFoundError") {
-            errorMsg = "❌ No camera/microphone found on device";
-          } else if (mediaError.name === "NotReadableError") {
-            errorMsg = "❌ Camera/Microphone in use by another app";
-          }
-          
-          console.error(errorMsg);
-          toast.error(errorMsg);
-          throw mediaError;
-        }
-        
-        localStreamRef.current = stream;
-        console.log("✅ Local stream ready, tracks:", stream.getTracks().map(t => t.kind));
-
-        // Auto-enable microphone and camera
-        MediaService.toggleAudio(stream, true);
-        MediaService.toggleVideo(stream, true);
-        setIsAudioEnabled(true);
-        setIsVideoEnabled(true);
-        console.log("✅ Audio/Video auto-enabled");
-
-        if (localVideoRef.current) {
-          localVideoRef.current.srcObject = stream;
-          localVideoRef.current.play().catch((e) => {
-            console.warn("Auto-play:", e.message);
-          });
-        }
-
-        // Get room info
-        const room = await SupabaseService.getRoom(roomId);
-        if (room.status === "ended") {
-          setSessionEnded(true);
-          router.push("/");
-          return;
-        }
-
-        // Initialize WebRTC
-        const webrtcService = new WebRTCService([
-          { urls: "stun:stun.l.google.com:19302" },
-          {
-            urls: "turn:global.relay.metered.ca:80",
-            username: "openai",
-            credential: "12345",
-          },
-        ]);
-
-        await webrtcService.initialize(stream);
-        webrtcServiceRef.current = webrtcService;
-
-        // Handle remote stream
-        webrtcService.onRemoteTrack((remoteStream) => {
-          if (remoteVideoRef.current) {
-            remoteVideoRef.current.srcObject = remoteStream;
-          }
-        });
-
-        // Handle ICE candidates
-        webrtcService.onIceCandidate(async (candidate) => {
-          await SupabaseService.storeSignal({
-            room_id: roomId,
-            sender_id: userId,
-            receiver_id: undefined,
-            signal_type: "ice-candidate",
-            signal_data: candidate.candidate,
-          });
-        });
-
-        // Check if we should create offer or wait for answer
-        const existingSignals = await SupabaseService.getSignals(roomId);
-        if (existingSignals.length === 0) {
-          const offer = await webrtcService.createOffer();
-          await SupabaseService.storeSignal({
-            room_id: roomId,
-            sender_id: userId,
-            receiver_id: undefined,
-            signal_type: "offer",
-            signal_data: offer,
-          });
-        }
-
-        // Subscribe to signals
-        subscribeToSignals();
-
-        // Get chat history
-        const history = await SupabaseService.getChatHistory(roomId);
-        setChatMessages(history);
-
-        // Subscribe to chat
-        subscribeToChat();
-
-        // Subscribe to typing status
-        subscribeToTypingStatus();
-
-        setJoined(true);
-        
-        console.log("✅ Room initialized!");
-      } catch (error) {
-        console.error("❌ Init error:", error);
-        toast.error("Failed to initialize room");
-      }
-    };
-
-    initializeRoom();
-
-    return () => {
-      cleanup();
-    };
-  }, [roomId]);
-
-  // ===================================================================
-  // 📡 WebRTC Signaling
-  // ===================================================================
-  const subscribeToSignals = () => {
-    const subscription = SupabaseService.subscribeToSignals(roomId, async (signal) => {
-      if (signal.sender_id === userId) return;
-
-      try {
-        if (signal.signal_type === "offer") {
-          const answer = await webrtcServiceRef.current!.createAnswer(signal.signal_data);
-          await SupabaseService.storeSignal({
-            room_id: roomId,
-            sender_id: userId,
-            receiver_id: signal.sender_id,
-            signal_type: "answer",
-            signal_data: answer,
-          });
-        } else if (signal.signal_type === "answer") {
-          await webrtcServiceRef.current!.setRemoteDescription(signal.signal_data);
-        } else if (signal.signal_type === "ice-candidate") {
-          await webrtcServiceRef.current!.addIceCandidate({
-            candidate: signal.signal_data,
-            sdpMLineIndex: 0,
-            sdpMid: "0",
-          });
-        }
-      } catch (error) {
-        console.error("Error processing signal:", error);
-      }
-    });
-
-    channelRef.current = subscription;
-  };
-
-  // ===================================================================
-  // 💬 Chat
-  // ===================================================================
-  const subscribeToChat = () => {
-    SupabaseService.subscribeToChat(roomId, (message) => {
-      setChatMessages((prev) => [...prev, message]);
-    });
-  };
-
-  const sendMessage = async (e?: React.MouseEvent) => {
-    if (e) {
-      e.preventDefault();
-    }
-    
-    if (!newMessage.trim()) {
-      console.warn("Message is empty");
+    if (error || !room) {
+      toast.error("Room not found");
+      router.push("/");
       return;
     }
 
+    if (room.status !== "active") {
+      toast.error("This session has ended");
+      return;
+    }
+
+    joinSession(id);
+  };
+
+  const loadChatHistory = async (id: string) => {
+    try {
+      const { data, error } = await supabase
+        .from("chat_messages")
+        .select("*")
+        .eq("room_id", id)
+        .order("created_at", { ascending: true });
+
+      if (error) {
+        console.error("Failed to load chat history:", error);
+        return;
+      }
+      if (data) {
+        console.log("Chat history loaded:", data.length, "messages");
+        setChatMessages(data);
+      }
+    } catch (err) {
+      console.error("Chat history error:", err);
+    }
+  };
+
+  const subscribeToChat = (id: string) => {
+    console.log("Subscribing to chat for room:", id);
+    const channel = supabase
+      .channel(`chat-${id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "chat_messages",
+          filter: `room_id=eq.${id}`,
+        },
+        (payload) => {
+          console.log("New chat message received:", payload.new);
+          setChatMessages((prev) => [...prev, payload.new as any]);
+        }
+      )
+      .subscribe((status) => {
+        console.log("Chat subscription status:", status);
+      });
+
+    return channel;
+  };
+
+  const subscribeToTyping = (id: string) => {
+    supabase
+      .channel(`typing-${id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "typing_status",
+          filter: `room_id=eq.${id}`,
+        },
+        (payload: { new?: { is_typing?: boolean } }) => {
+          setRemoteTyping(payload.new?.is_typing ?? false);
+        }
+      )
+      .subscribe();
+  };
+
+  const sendMessage = async () => {
+    console.log("🔵 Send clicked - message:", newMessage, "roomid:", roomid, "userId:", userId);
+    if (!newMessage.trim() || !roomid) {
+      console.log("❌ Blocked - empty or no room");
+      return;
+    }
+    const id = Array.isArray(roomid) ? roomid[0] : roomid;
+
     try {
       console.log("Sending message:", newMessage);
-      const msg = newMessage;
-      setNewMessage("");
-      
-      // Add message to local chat immediately (optimistic update)
-      const newMsg: ChatMessage = {
-        id: Math.random().toString(),
-        room_id: roomId,
-        user_id: userId,
-        user_name: userName,
-        message: msg,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
-      setChatMessages((prev) => [...prev, newMsg]);
-      
-      await SupabaseService.sendMessage({
-        room_id: roomId,
-        user_id: userId,
-        user_name: userName,
-        message: msg,
-      });
-      console.log("Message sent successfully");
+      const { data, error } = await supabase.from("chat_messages").insert({
+        room_id: id,
+        user_id: userId || "anonymous",
+        message: newMessage,
+      }).select().single();
 
-      // Update typing status
-      await SupabaseService.updateTypingStatus(roomId, userId, false, userName);
-    } catch (error) {
-      console.error("Error sending message:", error);
+      if (error) {
+        console.error("Failed to send message:", error);
+        toast.error("Failed to send message");
+        return;
+      }
+
+      console.log("Message sent successfully:", data);
+      setNewMessage("");
+      setShowEmojiPicker(false);
+    } catch (err) {
+      console.error("Send message error:", err);
       toast.error("Failed to send message");
     }
   };
 
-  const subscribeToTypingStatus = () => {
-    SupabaseService.subscribeToTypingStatus(roomId, (status) => {
-      if (status.user_id !== userId) {
-        setRemoteUser(status);
-      }
-    });
-  };
-
-  const handleMessageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleTyping = (e: React.ChangeEvent<HTMLInputElement>) => {
     setNewMessage(e.target.value);
+    if (!roomid) return;
+    const id = Array.isArray(roomid) ? roomid[0] : roomid;
 
-    // Update typing status
-    clearTimeout(typingTimeoutRef.current!);
-    try {
-      await SupabaseService.updateTypingStatus(roomId, userId, true, userName);
-    } catch (error) {
-      console.error("Error updating typing status:", error);
+    supabase.from("typing_status").upsert({
+      room_id: id,
+      is_typing: true,
+      updated_at: new Date().toISOString(),
+    });
+
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
     }
 
-    typingTimeoutRef.current = setTimeout(async () => {
-      try {
-        await SupabaseService.updateTypingStatus(roomId, userId, false, userName);
-      } catch (error) {
-        console.error("Error clearing typing status:", error);
-      }
-    }, 2000);
+    typingTimeoutRef.current = setTimeout(() => {
+      supabase.from("typing_status").upsert({
+        room_id: id,
+        is_typing: false,
+        updated_at: new Date().toISOString(),
+      });
+    }, 1500);
   };
 
-  // ===================================================================
-  // 🎥 Media Controls
-  // ===================================================================
-  const toggleAudio = () => {
-    if (!localStreamRef.current) {
-      console.warn("⚠️ Waiting for local stream...");
-      toast.error("Camera/Microphone still initializing...");
-      return;
-    }
-    
-    try {
-      const audioTracks = localStreamRef.current.getAudioTracks();
-      if (audioTracks.length === 0) {
-        console.error("No audio tracks available");
-        toast.error("No microphone available");
-        return;
-      }
-
-      const enabled = !isAudioEnabled;
-      MediaService.toggleAudio(localStreamRef.current, enabled);
-      setIsAudioEnabled(enabled);
-      console.log("🎤 Microphone toggled:", enabled ? "ON" : "OFF");
-      toast.success(enabled ? "🎤 Mic ON" : "🔇 Mic OFF");
-    } catch (error) {
-      console.error("Error toggling audio:", error);
-      toast.error("Failed to toggle microphone");
-    }
+  const handleEndSession = async () => {
+    await endSession();
+    router.push("/");
   };
 
-  const toggleVideo = () => {
-    if (!localStreamRef.current) {
-      console.warn("⚠️ Waiting for local stream...");
-      toast.error("Camera/Microphone still initializing...");
-      return;
-    }
-    
-    try {
-      const videoTracks = localStreamRef.current.getVideoTracks();
-      if (videoTracks.length === 0) {
-        console.error("No video tracks available");
-        toast.error("No camera available");
-        return;
-      }
-
-      const enabled = !isVideoEnabled;
-      MediaService.toggleVideo(localStreamRef.current, enabled);
-      setIsVideoEnabled(enabled);
-      console.log("📹 Camera toggled:", enabled ? "ON" : "OFF");
-      toast.success(enabled ? "📹 Camera ON" : "📷 Camera OFF");
-    } catch (error) {
-      console.error("Error toggling video:", error);
-      toast.error("Failed to toggle camera");
-    }
+  const toggleScreenShare = () => {
+    if (isScreenSharing) stopScreenShare();
+    else shareScreen();
   };
 
-  const toggleScreenShare = async () => {
-    try {
-      if (!isScreenSharing) {
-        const screenStream = await MediaService.getScreenMedia();
-        screenStreamRef.current = screenStream;
-
-        const screenTrack = screenStream.getVideoTracks()[0];
-        await MediaService.replaceTrack(
-          webrtcServiceRef.current!.getPeerConnection(),
-          screenStream,
-          "video"
-        );
-
-        // Handle screen share stop
-        screenTrack.onended = async () => {
-          if (localStreamRef.current) {
-            await MediaService.replaceTrack(
-              webrtcServiceRef.current!.getPeerConnection(),
-              localStreamRef.current,
-              "video"
-            );
-          }
-          setIsScreenSharing(false);
-          toast.success("Screen share stopped");
-        };
-
-        setIsScreenSharing(true);
-        toast.success("Screen sharing started");
-      } else {
-        if (screenStreamRef.current) {
-          MediaService.stopTracks(screenStreamRef.current);
-        }
-        if (localStreamRef.current) {
-          await MediaService.replaceTrack(
-            webrtcServiceRef.current!.getPeerConnection(),
-            localStreamRef.current,
-            "video"
-          );
-        }
-        setIsScreenSharing(false);
-        toast.success("Screen share stopped");
-      }
-    } catch (error) {
-      console.error("Screen share error:", error);
-      toast.error("Failed to share screen");
-    }
+  const copyRoomLink = () => {
+    navigator.clipboard.writeText(window.location.href);
+    setCopied(true);
+    toast.success("Room link copied!");
+    setTimeout(() => setCopied(false), 2000);
   };
-
-  // ===================================================================
-  // 🔴 End Session
-  // ===================================================================
-  const endSession = async () => {
-    try {
-      await SupabaseService.updateRoomStatus(roomId, "ended");
-      cleanup();
-      setSessionEnded(true);
-      toast.success("Session ended");
-      router.push("/");
-    } catch (error) {
-      toast.error("Failed to end session");
-    }
-  };
-
-  const cleanup = () => {
-    webrtcServiceRef.current?.close();
-    if (localStreamRef.current) {
-      MediaService.stopTracks(localStreamRef.current);
-    }
-    if (screenStreamRef.current) {
-      MediaService.stopTracks(screenStreamRef.current);
-    }
-    if (channelRef.current) {
-      channelRef.current.unsubscribe();
-    }
-  };
-
-  // ===================================================================
-  // 📱 UI Render
-  // ===================================================================
-  if (sessionEnded) {
-    return (
-      <div className="flex items-center justify-center h-screen bg-black text-white">
-        <div className="text-center">
-          <h1 className="text-4xl font-bold mb-4">Session Ended</h1>
-          <p className="text-lg text-gray-400">Thank you for the mentoring session!</p>
-        </div>
-      </div>
-    );
-  }
 
   return (
-    <div className="flex h-screen bg-black text-white">
+    <div className="h-screen w-full bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 flex overflow-hidden">
       {/* Main Video Area */}
-      <div className="flex-1 flex flex-col p-4">
+      <div className="flex-1 flex flex-col p-4 lg:p-6">
         {/* Header */}
-        <div className="mb-4">
-          <h1 className="text-2xl font-bold">Room: {roomId}</h1>
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg">
+              <FaVideo className="text-white text-sm" />
+            </div>
+            <div>
+              <h1 className="font-raleway text-white font-semibold text-lg">Clario Session</h1>
+              <p className="text-indigo-300 text-sm font-inter">
+                {formatDuration(callDuration)} • {localStream ? "In Call" : "Connecting..."}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setShowChat(!showChat)}
+              className="text-white hover:bg-white/10"
+            >
+              <FaComments />
+            </Button>
+          </div>
         </div>
 
-        {/* Video Container */}
-        <div className="flex-1 relative bg-gray-900 rounded-lg overflow-hidden mb-4">
-          {/* Remote Video (Large) */}
+        {/* Video Grid */}
+        <div className="flex-1 relative rounded-2xl overflow-hidden bg-gradient-to-br from-slate-800/50 to-slate-900/50 backdrop-blur-xl border border-white/10 shadow-2xl">
+          {/* Remote Video (Full) */}
           <video
             ref={remoteVideoRef}
             autoPlay
             playsInline
-            className="w-full h-full object-cover bg-black"
+            className="absolute inset-0 w-full h-full object-cover"
           />
-          
 
-
-          {/* Local Video (Picture in Picture) */}
-          {localStreamRef.current && (
-            <video
-              ref={localVideoRef}
-              autoPlay
-              playsInline
-              muted
-              className="absolute bottom-4 right-4 w-48 h-32 bg-black rounded-lg border-2 border-white object-cover"
-            />
-          )}
-          
-          {!localStreamRef.current && joined && (
-            <div className="absolute bottom-4 right-4 w-48 h-32 bg-gray-800 rounded-lg border-2 border-red-500 flex items-center justify-center">
-              <div className="text-center text-red-400">
-                <p className="text-sm">❌ Camera Not</p>
-                <p className="text-sm">Available</p>
+          {/* Remote Video Placeholder - Shows your camera when no remote yet */}
+          {!remoteStream && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-br from-slate-800 to-slate-900">
+              <div className="w-24 h-24 rounded-full bg-gradient-to-br from-indigo-500/30 to-purple-600/30 flex items-center justify-center mb-4">
+                <FaUserCircle className="text-5xl text-indigo-400" />
               </div>
+              <p className="text-white/60 font-inter text-center">
+                Your video is ready
+              </p>
             </div>
           )}
 
-          {/* Control Bar */}
-          <div className="absolute bottom-6 left-1/2 transform -translate-x-1/2 flex gap-4 bg-black bg-opacity-50 px-6 py-4 rounded-full">
-            <button
-              onClick={toggleAudio}
-              disabled={!localStreamRef.current}
-              className={`p-3 rounded-full transition ${
-                !localStreamRef.current ? "bg-gray-600 cursor-not-allowed" :
-                isAudioEnabled
-                  ? "bg-blue-600 hover:bg-blue-700"
-                  : "bg-red-600 hover:bg-red-700"
-              }`}
-              title={isAudioEnabled ? "Mute" : "Unmute"}
-            >
-              {isAudioEnabled ? <FaMicrophone /> : <FaMicrophoneSlash />}
-            </button>
-
-            <button
-              onClick={toggleVideo}
-              disabled={!localStreamRef.current}
-              className={`p-3 rounded-full transition ${
-                !localStreamRef.current ? "bg-gray-600 cursor-not-allowed" :
-                isVideoEnabled
-                  ? "bg-blue-600 hover:bg-blue-700"
-                  : "bg-red-600 hover:bg-red-700"
-              }`}
-              title={isVideoEnabled ? "Stop Camera" : "Start Camera"}
-            >
-              {isVideoEnabled ? <FaVideo /> : <FaVideoSlash />}
-            </button>
-
-            <button
-              onClick={toggleScreenShare}
-              className={`p-3 rounded-full transition ${
-                isScreenSharing
-                  ? "bg-green-600 hover:bg-green-700"
-                  : "bg-blue-600 hover:bg-blue-700"
-              }`}
-              title="Share Screen"
-            >
-              <FaDesktop />
-            </button>
-
-            <button
-              onClick={endSession}
-              className="p-3 rounded-full bg-red-600 hover:bg-red-700 transition"
-              title="End Call"
-            >
-              <FaPhoneSlash />
-            </button>
+          {/* Local Video (PiP) */}
+          <div className="absolute bottom-4 right-4 w-32 h-24 sm:w-48 sm:h-36 lg:w-64 lg:h-48 rounded-xl overflow-hidden border-2 border-indigo-500/50 shadow-2xl bg-slate-900/80 backdrop-blur-sm transition-all hover:scale-105">
+            <video
+              ref={localVideoRef}
+              autoPlay
+              muted
+              playsInline
+              className="w-full h-full object-cover"
+            />
+            {!localStream && (
+              <div className="absolute inset-0 flex items-center justify-center bg-slate-800">
+                <FaUserCircle className="text-3xl text-slate-600" />
+              </div>
+            )}
+            {!isCameraOn && localStream && (
+              <div className="absolute inset-0 flex items-center justify-center bg-slate-800">
+                <FaVideoSlash className="text-2xl text-slate-500" />
+              </div>
+            )}
+            <div className="absolute bottom-2 left-2 bg-black/60 px-2 py-1 rounded-lg">
+              <span className="text-white text-xs font-inter">You</span>
+            </div>
           </div>
+
+          {/* Loading Overlay */}
+          {isLoading && (
+            <div className="absolute inset-0 flex items-center justify-center bg-black/50 backdrop-blur-sm z-10">
+              <div className="flex flex-col items-center gap-3">
+                <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+                <p className="text-white font-inter">Connecting...</p>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Controls */}
+        <div className="mt-4 flex items-center justify-center gap-3">
+          {/* Mic Toggle */}
+          <button
+            onClick={() => toggleMicrophone()}
+            className={`w-14 h-14 rounded-xl flex items-center justify-center transition-all shadow-lg hover:scale-105 ${isMicOn
+              ? "bg-white/10 text-white hover:bg-white/20 border border-white/20"
+              : "bg-red-500/80 text-white hover:bg-red-600"
+              }`}
+          >
+            {isMicOn ? <FaMicrophone size={20} /> : <FaMicrophoneSlash size={20} />}
+          </button>
+
+          {/* Camera Toggle */}
+          <button
+            onClick={() => toggleCamera()}
+            className={`w-14 h-14 rounded-xl flex items-center justify-center transition-all shadow-lg hover:scale-105 ${isCameraOn
+              ? "bg-white/10 text-white hover:bg-white/20 border border-white/20"
+              : "bg-red-500/80 text-white hover:bg-red-600"
+              }`}
+          >
+            {isCameraOn ? <FaVideo size={20} /> : <FaVideoSlash size={20} />}
+          </button>
+
+          {/* End Call */}
+          <button
+            onClick={handleEndSession}
+            className="px-8 h-14 rounded-xl bg-gradient-to-r from-red-500 to-pink-500 text-white font-semibold flex items-center justify-center gap-2 transition-all shadow-lg hover:scale-105 hover:shadow-red-500/25"
+          >
+            <FaPhoneSlash size={18} />
+            <span className="hidden sm:inline font-inter">End Session</span>
+          </button>
+
+          {/* Screen Share */}
+          <button
+            onClick={toggleScreenShare}
+            className={`w-14 h-14 rounded-xl flex items-center justify-center transition-all shadow-lg hover:scale-105 ${isScreenSharing
+              ? "bg-indigo-500 text-white"
+              : "bg-white/10 text-white hover:bg-white/20 border border-white/20"
+              }`}
+          >
+            <FaDesktop size={20} />
+          </button>
+
+          {/* Chat Toggle (Desktop) */}
+          <button
+            onClick={() => setShowChat(!showChat)}
+            className={`w-14 h-14 rounded-xl hidden lg:flex items-center justify-center transition-all shadow-lg hover:scale-105 ${showChat
+              ? "bg-indigo-500 text-white"
+              : "bg-white/10 text-white hover:bg-white/20 border border-white/20"
+              }`}
+          >
+            <FaComments size={20} />
+          </button>
         </div>
       </div>
 
-      {/* Chat Panel */}
-      {showChatPanel && (
-        <div className="w-80 bg-gray-900 flex flex-col border-l border-gray-700">
+      {/* Chat Sidebar */}
+      <div className={`${showChat ? "w-80 lg:w-96" : "w-0"} transition-all duration-300 overflow-hidden bg-slate-900/80 backdrop-blur-xl border-l border-white/10`}>
+        <div className="w-80 lg:w-96 h-full flex flex-col">
           {/* Chat Header */}
-          <div className="p-4 border-b border-gray-700">
-            <h3 className="text-lg font-semibold">Chat</h3>
+          <div className="p-4 border-b border-white/10 flex items-center justify-between">
+            <h2 className="text-white font-semibold font-raleway flex items-center gap-2">
+              <FaComments className="text-indigo-400" />
+              Chat
+            </h2>
+            <button
+              onClick={() => setShowChat(false)}
+              className="text-white/60 hover:text-white lg:hidden"
+            >
+              <FaTimes />
+            </button>
           </div>
 
           {/* Messages */}
-          <div id="chat-messages" className="flex-1 overflow-y-auto p-4 space-y-3">
+          <div
+            ref={chatContainerRef}
+            className="flex-1 overflow-y-auto p-4 space-y-3 scroll-container"
+          >
             {chatMessages.length === 0 && (
-              <p className="text-gray-500 text-center text-sm">No messages yet. Start chatting!</p>
+              <div className="text-center text-white/40 py-8 font-inter">
+                <FaComments className="mx-auto text-3xl mb-2 opacity-50" />
+                <p>No messages yet</p>
+                <p className="text-sm">Start the conversation!</p>
+              </div>
             )}
-            {chatMessages.map((msg, idx) => (
-              <div key={msg.id || idx} className={`text-sm ${msg.user_id === userId ? 'text-right' : ''}`}>
-                <p className={`font-semibold ${msg.user_id === userId ? 'text-green-400' : 'text-blue-400'}`}>
-                  {msg.user_name}
-                </p>
-                <p className={`text-gray-300 break-words p-2 rounded ${msg.user_id === userId ? 'bg-green-900 bg-opacity-30' : 'bg-blue-900 bg-opacity-30'}`}>
-                  {msg.message}
-                </p>
+            {chatMessages.map((msg, index) => (
+              <div
+                key={msg.id || index}
+                className={`flex ${msg.user_id === userId ? 'justify-end' : 'justify-start'}`}
+              >
+                <div className={`max-w-[80%] rounded-2xl px-4 py-2 ${msg.user_id === userId
+                  ? 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white'
+                  : 'bg-white/10 text-white'
+                  }`}>
+                  <p className="font-inter text-sm">{msg.message}</p>
+                </div>
               </div>
             ))}
-            {remoteUser?.is_typing && (
-              <div className="text-sm text-gray-500 italic">
-                {remoteUser.user_name} is typing...
+            {remoteTyping && (
+              <div className="flex justify-start">
+                <div className="bg-white/10 rounded-2xl px-4 py-2 text-white/60 text-sm font-inter flex items-center gap-1">
+                  <span className="flex gap-1">
+                    <span className="w-2 h-2 bg-white/60 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                    <span className="w-2 h-2 bg-white/60 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                    <span className="w-2 h-2 bg-white/60 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                  </span>
+                </div>
               </div>
             )}
           </div>
 
           {/* Emoji Picker */}
           {showEmojiPicker && (
-            <div className="border-t border-gray-700 p-2">
+            <div className="p-2 border-t border-white/10">
               <EmojiPicker
-                onEmojiClick={(emoji: any) => {
-                  setNewMessage((prev) => prev + emoji.emoji);
-                  setShowEmojiPicker(false);
-                }}
+                theme={Theme.DARK}
+                width="100%"
+                height={280}
+                onEmojiClick={(emojiData) =>
+                  setNewMessage((prev) => prev + emojiData.emoji)
+                }
               />
             </div>
           )}
 
-          {/* Input Area */}
-          <div className="border-t border-gray-700 p-4 space-y-2">
-            <div className="flex gap-2">
+          {/* Input */}
+          <div className="p-4 border-t border-white/10">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center text-white/60 hover:text-white hover:bg-white/20 transition-all"
+              >
+                <FaSmile />
+              </button>
               <input
                 type="text"
                 value={newMessage}
-                onChange={handleMessageChange}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    sendMessage();
-                  }
-                }}
+                onChange={handleTyping}
+                onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
                 placeholder="Type a message..."
-                className="flex-1 bg-gray-800 text-white rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="flex-1 bg-white/10 border border-white/20 rounded-xl px-4 py-2.5 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-inter"
               />
               <button
-                type="button"
-                onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-                className="p-2 hover:bg-gray-800 rounded transition"
+                onClick={sendMessage}
+                disabled={!newMessage.trim()}
+                className="w-10 h-10 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-600 flex items-center justify-center text-white disabled:opacity-50 hover:scale-105 transition-all shadow-lg"
               >
-                😊
+                <FaPaperPlane />
               </button>
             </div>
-            <button
-              type="button"
-              onClick={(e) => sendMessage(e)}
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white rounded py-2 text-sm font-semibold transition"
-            >
-              Send
-            </button>
           </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }
