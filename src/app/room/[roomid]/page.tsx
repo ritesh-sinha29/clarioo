@@ -44,6 +44,7 @@ export default function RoomPage() {
   const [remoteTyping, setRemoteTyping] = useState(false);
   const [copied, setCopied] = useState(false);
   const [callDuration, setCallDuration] = useState(0);
+  const [isRemoteVideoPlaying, setIsRemoteVideoPlaying] = useState(false);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
 
@@ -77,6 +78,33 @@ export default function RoomPage() {
       chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
     }
   }, [chatMessages]);
+
+  // Sync remote stream to video element
+  useEffect(() => {
+    if (remoteVideoRef.current && remoteStream) {
+      remoteVideoRef.current.srcObject = remoteStream;
+      remoteVideoRef.current.play().catch(e => console.log("Play error:", e));
+      console.log("✅ Remote stream synced to video element");
+
+      // Also add event listener for when video actually starts playing
+      remoteVideoRef.current.onloadeddata = () => {
+        console.log("✅ Remote video data loaded - showing video");
+        setIsRemoteVideoPlaying(true);
+      };
+      remoteVideoRef.current.onplaying = () => {
+        console.log("✅ Remote video is playing");
+        setIsRemoteVideoPlaying(true);
+      };
+    }
+  }, [remoteStream]);
+
+  // Sync local stream to video element
+  useEffect(() => {
+    if (localVideoRef.current && localStream) {
+      localVideoRef.current.srcObject = localStream;
+      console.log("✅ Local stream synced to video element");
+    }
+  }, [localStream]);
 
   const checkRoomAndJoin = async (id: string) => {
     const { data: room, error } = await supabase
@@ -175,6 +203,7 @@ export default function RoomPage() {
       const { data, error } = await supabase.from("chat_messages").insert({
         room_id: id,
         user_id: userId || "anonymous",
+        user_name: userId?.startsWith('guest-') ? 'Guest' : 'You',
         message: newMessage,
       }).select().single();
 
@@ -235,18 +264,18 @@ export default function RoomPage() {
   };
 
   return (
-    <div className="h-screen w-full bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 flex overflow-hidden">
+    <div className="h-screen w-full bg-[#1C1F2E] flex overflow-hidden">
       {/* Main Video Area */}
       <div className="flex-1 flex flex-col p-4 lg:p-6">
         {/* Header */}
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg">
+            <div className="w-10 h-10 rounded-xl bg-[#0E72ED] flex items-center justify-center shadow-lg">
               <FaVideo className="text-white text-sm" />
             </div>
             <div>
               <h1 className="font-raleway text-white font-semibold text-lg">Clario Session</h1>
-              <p className="text-indigo-300 text-sm font-inter">
+              <p className="text-gray-400 text-sm font-inter">
                 {formatDuration(callDuration)} • {localStream ? "In Call" : "Connecting..."}
               </p>
             </div>
@@ -265,7 +294,7 @@ export default function RoomPage() {
         </div>
 
         {/* Video Grid */}
-        <div className="flex-1 relative rounded-2xl overflow-hidden bg-gradient-to-br from-slate-800/50 to-slate-900/50 backdrop-blur-xl border border-white/10 shadow-2xl">
+        <div className="flex-1 relative rounded-2xl overflow-hidden bg-[#232633] border border-gray-700/50 shadow-2xl">
           {/* Remote Video (Full) */}
           <video
             ref={remoteVideoRef}
@@ -274,20 +303,23 @@ export default function RoomPage() {
             className="absolute inset-0 w-full h-full object-cover"
           />
 
-          {/* Remote Video Placeholder - Shows your camera when no remote yet */}
-          {!remoteStream && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-br from-slate-800 to-slate-900">
-              <div className="w-24 h-24 rounded-full bg-gradient-to-br from-indigo-500/30 to-purple-600/30 flex items-center justify-center mb-4">
-                <FaUserCircle className="text-5xl text-indigo-400" />
+          {/* Waiting for Remote Video */}
+          {!remoteStream && !isRemoteVideoPlaying && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#232633]">
+              <div className="w-24 h-24 rounded-full bg-[#3D4150] flex items-center justify-center mb-4">
+                <FaUserCircle className="text-5xl text-gray-500" />
               </div>
-              <p className="text-white/60 font-inter text-center">
-                Your video is ready
+              <p className="text-gray-400 font-inter text-center font-medium">
+                Connecting to other participant...
+              </p>
+              <p className="text-gray-500 text-sm mt-2 font-inter">
+                Their video will appear here
               </p>
             </div>
           )}
 
           {/* Local Video (PiP) */}
-          <div className="absolute bottom-4 right-4 w-32 h-24 sm:w-48 sm:h-36 lg:w-64 lg:h-48 rounded-xl overflow-hidden border-2 border-indigo-500/50 shadow-2xl bg-slate-900/80 backdrop-blur-sm transition-all hover:scale-105">
+          <div className="absolute bottom-4 right-4 w-32 h-24 sm:w-48 sm:h-36 lg:w-64 lg:h-48 rounded-xl overflow-hidden border-2 border-gray-600/50 shadow-2xl bg-[#232633] transition-all hover:scale-105">
             <video
               ref={localVideoRef}
               autoPlay
@@ -314,7 +346,7 @@ export default function RoomPage() {
           {isLoading && (
             <div className="absolute inset-0 flex items-center justify-center bg-black/50 backdrop-blur-sm z-10">
               <div className="flex flex-col items-center gap-3">
-                <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+                <div className="w-12 h-12 border-4 border-[#0E72ED] border-t-transparent rounded-full animate-spin" />
                 <p className="text-white font-inter">Connecting...</p>
               </div>
             </div>
@@ -326,9 +358,9 @@ export default function RoomPage() {
           {/* Mic Toggle */}
           <button
             onClick={() => toggleMicrophone()}
-            className={`w-14 h-14 rounded-xl flex items-center justify-center transition-all shadow-lg hover:scale-105 ${isMicOn
-              ? "bg-white/10 text-white hover:bg-white/20 border border-white/20"
-              : "bg-red-500/80 text-white hover:bg-red-600"
+            className={`w-14 h-14 rounded-full flex items-center justify-center transition-all shadow-lg hover:scale-105 ${isMicOn
+              ? "bg-[#3D4150] text-white hover:bg-[#4A4F5E]"
+              : "bg-red-500 text-white hover:bg-red-600"
               }`}
           >
             {isMicOn ? <FaMicrophone size={20} /> : <FaMicrophoneSlash size={20} />}
@@ -337,9 +369,9 @@ export default function RoomPage() {
           {/* Camera Toggle */}
           <button
             onClick={() => toggleCamera()}
-            className={`w-14 h-14 rounded-xl flex items-center justify-center transition-all shadow-lg hover:scale-105 ${isCameraOn
-              ? "bg-white/10 text-white hover:bg-white/20 border border-white/20"
-              : "bg-red-500/80 text-white hover:bg-red-600"
+            className={`w-14 h-14 rounded-full flex items-center justify-center transition-all shadow-lg hover:scale-105 ${isCameraOn
+              ? "bg-[#3D4150] text-white hover:bg-[#4A4F5E]"
+              : "bg-red-500 text-white hover:bg-red-600"
               }`}
           >
             {isCameraOn ? <FaVideo size={20} /> : <FaVideoSlash size={20} />}
@@ -348,7 +380,7 @@ export default function RoomPage() {
           {/* End Call */}
           <button
             onClick={handleEndSession}
-            className="px-8 h-14 rounded-xl bg-gradient-to-r from-red-500 to-pink-500 text-white font-semibold flex items-center justify-center gap-2 transition-all shadow-lg hover:scale-105 hover:shadow-red-500/25"
+            className="px-8 h-14 rounded-full bg-red-500 hover:bg-red-600 text-white font-semibold flex items-center justify-center gap-2 transition-all shadow-lg hover:scale-105"
           >
             <FaPhoneSlash size={18} />
             <span className="hidden sm:inline font-inter">End Session</span>
@@ -357,9 +389,9 @@ export default function RoomPage() {
           {/* Screen Share */}
           <button
             onClick={toggleScreenShare}
-            className={`w-14 h-14 rounded-xl flex items-center justify-center transition-all shadow-lg hover:scale-105 ${isScreenSharing
-              ? "bg-indigo-500 text-white"
-              : "bg-white/10 text-white hover:bg-white/20 border border-white/20"
+            className={`w-14 h-14 rounded-full flex items-center justify-center transition-all shadow-lg hover:scale-105 ${isScreenSharing
+              ? "bg-[#00D56A] text-white"
+              : "bg-[#3D4150] text-white hover:bg-[#4A4F5E]"
               }`}
           >
             <FaDesktop size={20} />
@@ -368,9 +400,9 @@ export default function RoomPage() {
           {/* Chat Toggle (Desktop) */}
           <button
             onClick={() => setShowChat(!showChat)}
-            className={`w-14 h-14 rounded-xl hidden lg:flex items-center justify-center transition-all shadow-lg hover:scale-105 ${showChat
-              ? "bg-indigo-500 text-white"
-              : "bg-white/10 text-white hover:bg-white/20 border border-white/20"
+            className={`w-14 h-14 rounded-full hidden lg:flex items-center justify-center transition-all shadow-lg hover:scale-105 ${showChat
+              ? "bg-[#0E72ED] text-white"
+              : "bg-[#3D4150] text-white hover:bg-[#4A4F5E]"
               }`}
           >
             <FaComments size={20} />
@@ -379,17 +411,17 @@ export default function RoomPage() {
       </div>
 
       {/* Chat Sidebar */}
-      <div className={`${showChat ? "w-80 lg:w-96" : "w-0"} transition-all duration-300 overflow-hidden bg-slate-900/80 backdrop-blur-xl border-l border-white/10`}>
+      <div className={`${showChat ? "w-80 lg:w-96" : "w-0"} transition-all duration-300 overflow-hidden bg-[#232633] border-l border-gray-700/50`}>
         <div className="w-80 lg:w-96 h-full flex flex-col">
           {/* Chat Header */}
-          <div className="p-4 border-b border-white/10 flex items-center justify-between">
+          <div className="p-4 border-b border-gray-700/50 flex items-center justify-between">
             <h2 className="text-white font-semibold font-raleway flex items-center gap-2">
-              <FaComments className="text-indigo-400" />
+              <FaComments className="text-gray-400" />
               Chat
             </h2>
             <button
               onClick={() => setShowChat(false)}
-              className="text-white/60 hover:text-white lg:hidden"
+              className="text-gray-400 hover:text-white lg:hidden"
             >
               <FaTimes />
             </button>
@@ -401,7 +433,7 @@ export default function RoomPage() {
             className="flex-1 overflow-y-auto p-4 space-y-3 scroll-container"
           >
             {chatMessages.length === 0 && (
-              <div className="text-center text-white/40 py-8 font-inter">
+              <div className="text-center text-gray-500 py-8 font-inter">
                 <FaComments className="mx-auto text-3xl mb-2 opacity-50" />
                 <p>No messages yet</p>
                 <p className="text-sm">Start the conversation!</p>
@@ -413,10 +445,13 @@ export default function RoomPage() {
                 className={`flex ${msg.user_id === userId ? 'justify-end' : 'justify-start'}`}
               >
                 <div className={`max-w-[80%] rounded-2xl px-4 py-2 ${msg.user_id === userId
-                  ? 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white'
-                  : 'bg-white/10 text-white'
+                  ? 'bg-[#0E72ED] text-white'
+                  : 'bg-[#3D4150] text-white'
                   }`}>
                   <p className="font-inter text-sm">{msg.message}</p>
+                  <p className="text-xs opacity-60 mt-1 text-right">
+                    {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </p>
                 </div>
               </div>
             ))}
@@ -462,12 +497,12 @@ export default function RoomPage() {
                 onChange={handleTyping}
                 onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
                 placeholder="Type a message..."
-                className="flex-1 bg-white/10 border border-white/20 rounded-xl px-4 py-2.5 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-inter"
+                className="flex-1 bg-[#3D4150] border border-gray-600/50 rounded-xl px-4 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#0E72ED] font-inter"
               />
               <button
                 onClick={sendMessage}
                 disabled={!newMessage.trim()}
-                className="w-10 h-10 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-600 flex items-center justify-center text-white disabled:opacity-50 hover:scale-105 transition-all shadow-lg"
+                className="w-10 h-10 rounded-xl bg-[#0E72ED] hover:bg-[#1976D2] flex items-center justify-center text-white disabled:opacity-50 hover:scale-105 transition-all shadow-lg"
               >
                 <FaPaperPlane />
               </button>

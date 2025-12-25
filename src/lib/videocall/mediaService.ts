@@ -1,18 +1,74 @@
 // Media Capture and Screen Sharing Service
 export class MediaService {
   /**
-   * Get user media (camera and microphone)
+   * Get user media with adaptive quality (Zoom-like)
    */
   static async getUserMedia(
-    constraints: MediaStreamConstraints = {
-      video: { width: { ideal: 1280 }, height: { ideal: 720 } },
-      audio: true,
-    }
+    quality: 'hd' | 'sd' | 'low' = 'hd'
   ): Promise<MediaStream> {
     try {
+      // Adaptive video constraints based on quality
+      const videoConstraints = this.getVideoConstraints(quality);
+
+      const constraints: MediaStreamConstraints = {
+        video: videoConstraints,
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      };
+
       return await navigator.mediaDevices.getUserMedia(constraints);
     } catch (error) {
-      throw new Error(`Failed to access media devices: ${error}`);
+      const err = error as DOMException;
+
+      // If camera is in use, try audio only
+      if (err.name === 'NotReadableError' || err.name === 'AbortError') {
+        console.warn('⚠️ Camera in use by another app, trying audio only...');
+        try {
+          const audioOnly = await navigator.mediaDevices.getUserMedia({
+            video: false,
+            audio: {
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true,
+            },
+          });
+          console.log('✅ Got audio-only stream (camera unavailable)');
+          return audioOnly;
+        } catch {
+          throw new Error('Microphone unavailable. Close other apps using it.');
+        }
+      }
+
+      throw new Error(`Failed to access media: ${err.name}`);
+    }
+  }
+
+  /**
+   * Get video constraints based on quality level (Zoom-like adaptive bitrate)
+   */
+  private static getVideoConstraints(quality: 'hd' | 'sd' | 'low'): MediaTrackConstraints {
+    switch (quality) {
+      case 'hd':
+        return {
+          width: { ideal: 1280, max: 1920 },
+          height: { ideal: 720, max: 1080 },
+          frameRate: { ideal: 30, max: 30 },
+        };
+      case 'sd':
+        return {
+          width: { ideal: 640, max: 1280 },
+          height: { ideal: 480, max: 720 },
+          frameRate: { ideal: 24, max: 30 },
+        };
+      case 'low':
+        return {
+          width: { ideal: 320, max: 640 },
+          height: { ideal: 240, max: 480 },
+          frameRate: { ideal: 15, max: 24 },
+        };
     }
   }
 

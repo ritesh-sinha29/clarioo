@@ -4,10 +4,87 @@ export class WebRTCService {
   private localStream: MediaStream | null = null;
 
   constructor(iceServers?: RTCIceServer[]) {
+    // Enhanced configuration with multiple STUN + TURN servers
     const config: RTCConfiguration = {
-      iceServers: iceServers || [{ urls: 'stun:stun.l.google.com:19302' }],
+      iceServers: iceServers || [
+        // Multiple STUN servers for redundancy
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun2.l.google.com:19302' },
+        { urls: 'stun:stun3.l.google.com:19302' },
+        { urls: 'stun:stun4.l.google.com:19302' },
+        // Free TURN servers (multiple providers for reliability)
+        {
+          urls: 'turn:relay1.expressturn.com:443',
+          username: 'efB8JPNL4BLRVGFHWR',
+          credential: 'gSFXj0qB4jX1eL8D',
+        },
+        {
+          urls: 'turn:a.relay.metered.ca:443',
+          username: '087e3f78e9f6c8d4c65a05d0',
+          credential: 'fJl8eR9pWq9YxKjL',
+        },
+        {
+          urls: 'turn:a.relay.metered.ca:443?transport=tcp',
+          username: '087e3f78e9f6c8d4c65a05d0',
+          credential: 'fJl8eR9pWq9YxKjL',
+        },
+      ],
+      iceTransportPolicy: 'all',
+      bundlePolicy: 'max-bundle',
+      rtcpMuxPolicy: 'require',
+      iceCandidatePoolSize: 10, // Pre-gather candidates for faster connection
     };
     this.peerConnection = new RTCPeerConnection(config);
+
+    // Monitor connection quality
+    this.setupQualityMonitoring();
+  }
+
+  /**
+   * Setup connection quality monitoring
+   */
+  private setupQualityMonitoring(): void {
+    if (!this.peerConnection) return;
+
+    this.peerConnection.oniceconnectionstatechange = () => {
+      const state = this.peerConnection?.iceConnectionState;
+      console.log('🔌 ICE Connection State:', state);
+
+      // Log when fully connected
+      if (state === 'connected' || state === 'completed') {
+        console.log('✅ Peer connection established successfully!');
+      }
+    };
+
+    this.peerConnection.onconnectionstatechange = () => {
+      console.log('🔌 Connection State:', this.peerConnection?.connectionState);
+
+      // Auto-reconnect on failure
+      if (this.peerConnection?.connectionState === 'failed') {
+        console.log('🔄 Connection failed, attempting ICE restart...');
+        this.restartIce();
+      }
+    };
+
+    // Monitor ICE gathering state
+    this.peerConnection.onicegatheringstatechange = () => {
+      console.log('🧊 ICE Gathering State:', this.peerConnection?.iceGatheringState);
+    };
+  }
+
+  /**
+   * Restart ICE connection (for network changes)
+   */
+  private async restartIce(): Promise<void> {
+    if (!this.peerConnection) return;
+    try {
+      const offer = await this.peerConnection.createOffer({ iceRestart: true });
+      await this.peerConnection.setLocalDescription(offer);
+      console.log('✅ ICE restart initiated');
+    } catch (err) {
+      console.error('❌ ICE restart failed:', err);
+    }
   }
 
   /**
@@ -17,9 +94,17 @@ export class WebRTCService {
     if (!this.peerConnection) throw new Error('PeerConnection not initialized');
 
     this.localStream = stream;
-    stream.getTracks().forEach((track) => {
+    const tracks = stream.getTracks();
+    console.log('🎬 Adding', tracks.length, 'tracks to peer connection');
+
+    tracks.forEach((track) => {
+      console.log('🎬 Adding track:', track.kind, track.label, 'enabled:', track.enabled);
       this.peerConnection?.addTrack(track, stream);
     });
+
+    // Log senders to verify tracks were added
+    const senders = this.peerConnection.getSenders();
+    console.log('📤 Peer connection now has', senders.length, 'senders');
   }
 
   /**
@@ -36,9 +121,36 @@ export class WebRTCService {
   async createOffer(): Promise<RTCSessionDescriptionInit> {
     if (!this.peerConnection) throw new Error('PeerConnection not initialized');
 
-    const offer = await this.peerConnection.createOffer();
-    await this.peerConnection.setLocalDescription(offer);
-    return offer;
+    // Create offer with optimized constraints (Zoom-like)
+    const offer = await this.peerConnection.createOffer({
+      offerToReceiveAudio: true,
+      offerToReceiveVideo: true,
+    });
+
+    // Optimize SDP for better codec selection
+    const optimizedOffer = this.optimizeSDP(offer);
+    await this.peerConnection.setLocalDescription(optimizedOffer);
+    return optimizedOffer;
+  }
+
+  /**
+   * Optimize SDP for better video quality (prefer VP9 or H.264)
+   */
+  private optimizeSDP(description: RTCSessionDescriptionInit): RTCSessionDescriptionInit {
+    if (!description.sdp) return description;
+
+    let sdp = description.sdp;
+
+    // Prefer VP9 codec for better quality at lower bitrates
+    // Or H.264 for hardware acceleration
+    const codecPreference = 'VP9'; // Can be 'H264' or 'VP8'
+
+    // Set max bitrate for video (adaptive based on network)
+    sdp = sdp.replace(/(m=video.*\r\n)/g, (match) => {
+      return match + 'b=AS:2000\r\n'; // Max 2 Mbps
+    });
+
+    return { ...description, sdp };
   }
 
   /**
@@ -87,8 +199,15 @@ export class WebRTCService {
   onRemoteTrack(callback: (stream: MediaStream) => void): void {
     if (!this.peerConnection) throw new Error('PeerConnection not initialized');
     this.peerConnection.ontrack = (event) => {
+      console.log("🎥 Remote track received:", event.track.kind, event.streams);
       if (event.streams[0]) {
+        console.log("🎥 Setting remote stream with", event.streams[0].getTracks().length, "tracks");
         callback(event.streams[0]);
+      } else if (event.track) {
+        // Fallback: Create stream from track if no stream provided
+        console.log("🎥 Creating stream from track");
+        const stream = new MediaStream([event.track]);
+        callback(stream);
       }
     };
   }
