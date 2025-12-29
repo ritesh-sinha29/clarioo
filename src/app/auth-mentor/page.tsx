@@ -127,7 +127,7 @@ export default function AuthPage() {
                   className=""
                 />
 
-                <h1 className="font-raleway text-3xl font-bold">Clario</h1>
+                <h1 className="font-raleway text-3xl font-bold">Clarioo</h1>
               </div>
             </Link>
 

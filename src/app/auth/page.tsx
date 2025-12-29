@@ -106,7 +106,7 @@ export default function AuthPage() {
                 />
               </Link>
 
-              <h1 className="font-raleway text-3xl font-bold">Clario</h1>
+              <h1 className="font-raleway text-3xl font-bold">Clarioo</h1>
             </div>
             <div className="flex flex-col gap-3">
               <Button
