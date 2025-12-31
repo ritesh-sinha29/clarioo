@@ -1,4 +1,4 @@
-<div align="center">
+
 # 🎯🎓 Clarioo - One Stop Career Platform
 
 > **Clarity today, Success follows tomorrow**
