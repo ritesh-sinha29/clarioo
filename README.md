@@ -205,8 +205,8 @@ Unlike other platforms that provide isolated solutions, Clarioo offers:
 1. **Clone the repository**
 
 ```bash
-git clone https://github.com/ritesh-sinha29/clario-Ai-powered-career-platform
-cd clario-Ai-powered-career-platform
+git clone https://github.com/ritesh-sinha29/clarioo
+cd clarioo
 ```
 
 2. **Install dependencies**
@@ -219,22 +219,6 @@ pnpm install
 
 ```bash
 cp .env.example .env.local
-```
-
-Add your API keys:
-
-```env
-# Google Gemini
-GEMINI_API_KEY=your_gemini_key
-
-# Supabase
-NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_key
-
-# Other APIs
-TAVILY_API_KEY=your_tavily_key
-SERPAPI_KEY=your_serpapi_key
-# ... add other keys
 ```
 
 4. **Run the development server**
@@ -330,8 +314,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## 📞 Contact & Support
 
 - **Website**: developing
-- **Demo Video**: [Watch on YouTube](link)
-- **Email**: Contact team leader Ronit Rai
+- **Demo Video**: [Watch on YouTube]( - )
+- **Email**: ssaiet.ritesh@gmail.com 
 
 ---
 
