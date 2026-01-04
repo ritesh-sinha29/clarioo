@@ -3,15 +3,15 @@
 
 > **Clarity today, Success follows tomorrow**
 
-[![Demo Video](https://img.shields.io/badge/Demo-Watch%20Video-red?style=for-the-badge&logo=youtube)](https://www.youtube.com/watch?v=zAU65GELeRU)
-[![Live Demo](https://img.shields.io/badge/Live-Demo-blue?style=for-the-badge&logo=vercel)](-)
+[![Demo Video](https://img.shields.io/badge/Demo-Watch%20Video-red?style=for-the-badge&logo=youtube)]( - )
+[![Live Demo](https://img.shields.io/badge/Live-Demo-blue?style=for-the-badge&logo=vercel)](clarioo.live)
 
 India’s first smart career platform that has fundamentally transformed how students choose their careers — a 3× National Award winner and a Google-recognized winning project.
 With real time Agent , Voice Agent , 3D Roadmaps , College suggestions and best part Mentor connect with 1:1 video call this is changing game. One of the Best product ever seen by -  MAHESH CHAND (founder of C# corner) !!!
 
 <div align="center">
   
-[![Watch Demo Video](https://img.shields.io/badge/Demo-Click%20here%20to%20Watch%20Video-red?style=for-the-badge&logo=youtube)](https://www.youtube.com/watch?v=zAU65GELeRU)
+[![Watch Demo Video](https://img.shields.io/badge/Demo-Click%20here%20to%20Watch%20Video-red?style=for-the-badge&logo=youtube)](-)
 
   <div align="center"> 
   <img src="public/Loginpage.png" alt="Login Page" width="600">
@@ -300,37 +300,14 @@ G --> H[Market Ready]
 
 | Name              | Role                       | College                                   |
 | ----------------- | -------------------------- | ----------------------------------------- |
-| **Ronit Rai**     | Team Leader                | LPU (CSE 2nd Year)                        |
 | **Ritesh Sinha**  | FullStack Dev & Researcher | SSAIET, Navsari (CSE 2nd Year)            |
+| **Ronit Rai**     | FullStack Developer        | LPU (CSE 2nd Year)                        |
 | **Riya**          | UI/UX & R&D                | LPU (CSE 2nd Year)                        |
 | **Harsh**         | Developer                  | LPU (CSE 2nd Year)                        |
 | **Ayushi Rajput** | Fullstack Developer        | Tula's Institute, Dehradun (CSE 2nd Year) |
 
 ---
 
-## 📊 Architecture
-
-```
-┌─────────────────┐
-│   Next.js App   │
-└────────┬────────┘
-         │
-    ┌────┴────┐
-    │         │
-┌───▼──┐  ┌──▼────┐
-│ AI   │  │ APIs  │
-│ Layer│  │ Layer │
-└───┬──┘  └──┬────┘
-    │        │
-    └────┬───┘
-         │
-    ┌────▼────────┐
-    │  Supabase   │
-    │  PostgreSQL │
-    └─────────────┘
-```
-
----
 
 ## 🤝 Contributing
 
@@ -371,6 +348,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 _Transforming career confusion into clarity_
 
-[![GitHub Stars](https://img.shields.io/github/stars/ritesh-sinha29/clario-ai-powered-career-platform?style=social)](https://github.com/ritesh-sinha29/clario-ai-powered-career-platform)
+[![GitHub Stars](https://img.shields.io/github/stars/ritesh-sinha29/clario-ai-powered-career-platform?style=social)](https://github.com/ritesh-sinha29/clarioo)
 
 </div>
